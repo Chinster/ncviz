@@ -1,11 +1,14 @@
 CC=gcc
-CFLAGS = -Wall -lncurses
+CFLAGS=-Wall -lncurses
 
-all: visuals.o
-	$(CC) $(CFLAGS) -o nzviz visuals.o
+all: test visuals
+	$(CC) $(CFLAGS) -o ncviz test.o visuals.o
 
-visuals.o:
+visuals:
 	$(CC) $(CFLAGS) -c visuals.c
 
+test:
+	$(CC) $(CFLAGS) -c test.c
+
 clean:
-	rm -f ppviz
+	rm visuals.o test.o ncviz
