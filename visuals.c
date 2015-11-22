@@ -4,10 +4,10 @@
 #include "visuals.h"
 
 // unicode bytes for eighth bars.
-static const char *outc[9] = {"f", "\xe2\x96\x81", "\xe2\x96\x82",
-                                   "\xe2\x96\x83", "\xe2\x96\x84",
-                                   "\xe2\x96\x85", "\xe2\x96\x86",
-                                   "\xe2\x96\x87", "\xe2\x96\x88"};
+static const char *outc[8] = {"\xe2\x96\x81", "\xe2\x96\x82",
+                              "\xe2\x96\x83", "\xe2\x96\x84",
+                              "\xe2\x96\x85", "\xe2\x96\x86",
+                              "\xe2\x96\x87", "\xe2\x96\x88"};
 
 struct {
     int limit;
@@ -24,33 +24,40 @@ struct {
  * but output is in an upperleft origin.
  */
 void draw_bar(int width, int index, int row, double bottom, double top) {
-    double bottom_edge = (row - 1) - (bottom * (row - 1));
-    double top_edge = (row - 1) - (top * (row - 1));
+    double bottom_edge = (row) - (bottom * (row));
+    double top_edge = (row) - (top * (row));
     int bottom_i = (int) bottom_edge;
     int top_i = (int) top_edge;
     int start_col = width * index;
 
-    /*
+    // Special edge case.
+    if (bottom_i > 79)
+        bottom_i = 79;
+
+    // top edge case.
+    if (top_i < 0)
+        top_i = 0;
+
+    // Origin is in upperleft
+    for (int i = bottom_i; i >= top_i; i--) {
+        move(i, start_col);
+        for (int j = 0; j < width; j++) {
+            printw(outc[7]);
+        }
+    }
+
     // Draw fractional section of the bar
     move(top_i, start_col);
 
     // Loosely similar to an fmod by .125 to find eighth sectional
     int eighth_index = (int)((top_edge - top_i) * 1000) / 125;
-    fprintf(info.logfile, "%f -> %d, %f -> %d, i%d\n", bottom_edge, bottom_i, top_edge, top_i, eighth_index);
-    for (int j = 0; j < width; j++) {
-        printw(outc[eighth_index]);
-    }
-    getchar();
-    refresh();
-    */
-
-    // Origin is in upperleft
-    for (int i = bottom_i; i > top_i; i--) {
-        move(i, start_col);
+    if (eighth_index != 0) {
         for (int j = 0; j < width; j++) {
-            printw(outc[8]);
+            // backwards because origin is at top
+            printw(outc[7 - eighth_index]);
         }
     }
+    fprintf(info.logfile, "%f -> %d, i%d\n", top_edge, top_i, eighth_index);
 }
 
 /* Expects a normalized array of doubles.
