@@ -1,14 +1,14 @@
 CC=gcc
 CFLAGS=-Wall -lncurses
 
-all: test visuals
-	$(CC) $(CFLAGS) -o ncviz test.o visuals.o
+all: example ncviz
+	$(CC) $(CFLAGS) -o example example.o ncviz.o
 
-visuals:
-	$(CC) $(CFLAGS) -c visuals.c
+ncviz: ncviz.c
+	$(CC) $(CFLAGS) -c ncviz.c
 
-test:
-	$(CC) $(CFLAGS) -c test.c
+example: example.c
+	$(CC) $(CFLAGS) -c example.c
 
 clean:
-	rm visuals.o test.o ncviz
+	rm ncviz.o example.o example
