@@ -8,7 +8,7 @@
 
 #include "ncviz.h"
 
-#define DATA_SIZE 50
+#define DATA_SIZE 1
 
 double *random_array(int size)
 {
@@ -24,11 +24,12 @@ double *random_array(int size)
 int main(int argc, char *argv[])
 {
     srand(time(NULL));
+    struct timespec delay = { .tv_sec = 0, .tv_nsec = 20000000 };
+
     double *data = random_array(DATA_SIZE);
     struct ncviz_option opts = {
         .limit = 100,
         .is_dynamic_limit = 0,
-        .width = 2,
         .alignment = ALIGN_LEFT,
         .fgcolor = COLOR_YELLOW,
         .bgcolor = COLOR_RED,
@@ -36,14 +37,21 @@ int main(int argc, char *argv[])
     ncviz_init();
     ncviz_set_option(&opts);
 
-
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 50; i++) {
         for (int j = 0; j < DATA_SIZE; j++) {
-            data[j] -= 0.01;
+            data[j] += 0.005;
+            if (data[j] >= 1.0) data[j] = 1.0;
+        }
+        ncviz_draw_data_normalized(data, DATA_SIZE);
+        nanosleep(&delay, NULL);
+    }
+    for (int i = 0; i < 50; i++) {
+        for (int j = 0; j < DATA_SIZE; j++) {
+            data[j] -= .005;
             if (data[j] <= 0.0) data[j] = 0.0;
         }
-        ncviz_draw_data_normalized(data, 10);
-        sleep(1);
+        ncviz_draw_data_normalized(data, DATA_SIZE);
+        nanosleep(&delay, NULL);
     }
 
 

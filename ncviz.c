@@ -131,10 +131,14 @@ void check_datareset(int row, int col, int datasize) {
 }
 
 /* Draws a bar on the ncurses screen.
- * Input expects origin in bottomleft.
- * Ncurses expects coordinates with upperleft origin.
+ * Bottom is lowest row to fill, top is highest.
+ * Origin is upperleft so bottom is larger than top.
  */
 void draw_bar(int width, int start_col, int row, int bottom, int top) {
+    // Special edge cases.
+    if (bottom >= row) bottom = row - 1;
+    if (top < 0) top = 0;
+
     // Draw bars. Origin is in upperleft
     for (int i = bottom; i >= top; i--) {
         move(i, start_col);
@@ -146,6 +150,9 @@ void draw_bar(int width, int start_col, int row, int bottom, int top) {
 
 /* Draws an eighth sectinoal on the ncurses screen. */
 void draw_eighth(int width, int start_col, double top_edge, int top_i) {
+    // Ignore out of bounds.
+    if (top_edge < 0) return;
+
     // Draw fractional section of the bar
     move(top_i, start_col);
 
@@ -196,26 +203,23 @@ int ncviz_draw_data_normalized(double *new_data, int size)
             return -1;
         }
 
-        double bottom_edge = row - (old_datum * row);
-        double top_edge = row - (new_datum * row);
-        int bottom_i = (int) bottom_edge;
-        int top_i = (int) top_edge;
-
-        // Special edge cases.
-        if (bottom_i >= row) bottom_i = row - 1;
-        if (top_i < 0) top_i = 0;
 
         // May the floating point gods have mercy on this equality check.
         if (new_datum == old_datum) {
             continue;
         } else if (new_datum > old_datum) {
-            draw_bar(bar_width, i * bar_width, row, bottom_i, top_i);
-            draw_eighth(bar_width, i * bar_width, top_edge, top_i);
+            double bottom = row - (old_datum * row);
+            double top = row - (new_datum * row);
+            draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
+            draw_eighth(bar_width, i * bar_width, top, (int)top);
         } else {
+            double bottom = row - (new_datum * row);
+            double top = row - (old_datum * row);
             // Switch to background color to erase bars.
             attron(COLOR_PAIR(2));
-            draw_bar(bar_width, i * bar_width, row, bottom_i, top_i - 1);
+            draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
             attron(COLOR_PAIR(1));
+            draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
         }
     }
 
