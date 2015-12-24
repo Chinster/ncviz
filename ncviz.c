@@ -4,6 +4,7 @@
 
 #include "ncviz.h"
 
+#define LOG_PATH "ncviz.log"
 
 // unicode bytes for eighth bars. Starts at one eighth.
 static const char *outc[8] = {"\xe2\x96\x81", "\xe2\x96\x82",
@@ -32,7 +33,7 @@ struct prev_data {
  *
  */
 struct option {
-    int limit;
+    double limit;
     int is_dynamic_limit;
     int width;
     enum alignment alignment;
@@ -80,7 +81,7 @@ int init_ncurse()
 
 /* Initializes internal datastructure. */
 int init_option() {
-    option.limit = 100;
+    option.limit = 1;
     option.is_dynamic_limit = 0;
     option.width = 0;
     option.fgcolor = COLOR_RED;
@@ -91,7 +92,7 @@ int init_option() {
     option.prev->data = NULL;
     option.prev->datasize = 0;
 
-    option.logfile = fopen("ncviz.log", "w");
+    option.logfile = fopen(LOG_PATH, "w");
     return 0;
 }
 
@@ -117,6 +118,16 @@ void ncviz_end()
     fclose(option.logfile);
 }
 
+/* Updates previous data point.
+ */
+void save_data(double *data, int row, int col, int size) {
+    option.prev->datasize = size;
+    option.prev->row = row;
+    option.prev->col = col;
+    for (int i = 0; i < size; i++)
+        option.prev->data[i] = data[i];
+}
+
 /* Resets the prev_data set if the window is resized or datasize changes.
  */
 void check_datareset(int row, int col, int datasize) {
@@ -125,7 +136,12 @@ void check_datareset(int row, int col, int datasize) {
             col != option.prev->col) {
         print_log("Data Reset.\n");
         free(option.prev->data);
+
         option.prev->data = calloc(datasize, sizeof(double));
+        option.prev->datasize = datasize;
+        option.prev->row = row;
+        option.prev->col = col;
+
         clear();
     }
 }
@@ -134,7 +150,8 @@ void check_datareset(int row, int col, int datasize) {
  * Bottom is lowest row to fill, top is highest.
  * Origin is upperleft so bottom is larger than top.
  */
-void draw_bar(int width, int start_col, int row, int bottom, int top) {
+void draw_bar(int width, int start_col, int row, int bottom, int top)
+{
     // Special edge cases.
     if (bottom >= row) bottom = row - 1;
     if (top < 0) top = 0;
@@ -149,7 +166,8 @@ void draw_bar(int width, int start_col, int row, int bottom, int top) {
 }
 
 /* Draws an eighth sectinoal on the ncurses screen. */
-void draw_eighth(int width, int start_col, double top_edge, int top_i) {
+void draw_eighth(int width, int start_col, double top_edge, int top_i)
+{
     // Ignore out of bounds.
     if (top_edge < 0) return;
 
@@ -166,20 +184,26 @@ void draw_eighth(int width, int start_col, double top_edge, int top_i) {
     }
 }
 
-/* Updates previous data point.
- */
-void save_data(double *data, int size, int row, int col) {
-    option.prev->datasize = size;
-    option.prev->row = row;
-    option.prev->col = col;
-    for (int i = 0; i < size; i++)
-        option.prev->data[i] = data[i];
+/* Finds max value in array. */
+double find_max(double *arr, int size)
+{
+    double max = arr[0];
+    for (int i = 1; i < size; i++)
+        if (arr[i] > max)
+            max = arr[i];
+    return max;
 }
 
-/* Expects an array of doubles in the range 0-1.
+/* If is_dynamic_limit is set draws the graph with max value being max of
+ * dataset. Otherwise, uses previously established max data point. If using
+ * a limit of 1.0 use ncviz_draw_data_static_normalized.
+ *
+ * Returns 0 on success. -1 when data is too wide. -2 when given non-normalized
+ * data.
  */
-int ncviz_draw_data_normalized(double *new_data, int size)
+int ncviz_draw_data(double *new_data, int size)
 {
+    int err = 0;
     int row, col;
     getmaxyx(stdscr, row, col);
     check_datareset(row, col, size);
@@ -191,18 +215,27 @@ int ncviz_draw_data_normalized(double *new_data, int size)
         bar_width = option.width;
 
     if (bar_width * size > col) {
+        err = -1;
         print_log("Cannot fit data on screen.\n");
-        return -1;
     }
 
     for (int i = 0; i < size; i++) {
-        double new_datum = new_data[i];
-        double old_datum = option.prev->data[i];
-        if (new_datum < 0 || new_datum > 1 || old_datum < 0 || old_datum > 1) {
-            print_log("Received non-normalized data.\n");
-            return -1;
+        double new_datum = new_data[i] / option.limit;
+        double old_datum = option.prev->data[i] / option.limit;
+
+        if (new_datum > 1.0 || new_datum < 0) {
+            if (option.is_dynamic_limit) {
+                option.limit = find_max(new_data, size);
+                print_log("Limit reached. New limit %f\n", option.limit);
+                check_datareset(-1, -1, -1);
+                return ncviz_draw_data(new_data, size);
+            }
+        } else {
+            err = -2;
         }
 
+        if (i * bar_width + bar_width > col)
+            break;
 
         // May the floating point gods have mercy on this equality check.
         if (new_datum == old_datum) {
@@ -224,36 +257,160 @@ int ncviz_draw_data_normalized(double *new_data, int size)
     }
 
     // Save this new data.
-    save_data(new_data, size, row, col);
+    save_data(new_data, row, col, size);
 
     refresh();
-    return 0;
+    return err;
 }
 
+/* Data points represent number of characters to use.
+ * Returns 0 on success. -1 when data is too wide. -2 when too tall.
+ */
+int ncviz_draw_data_static(double *new_data, int size)
+{
+    int err = 0;
+    int row, col;
+    getmaxyx(stdscr, row, col);
+    check_datareset(row, col, size);
+
+    int bar_width;
+    if (option.width == 0)
+        bar_width = col / size;
+    else
+        bar_width = option.width;
+
+    if (bar_width * size > col) {
+        err = -1;
+        print_log("Cannot fit data on screen.\n");
+    }
+
+    for (int i = 0; i < size; i++) {
+        double new_datum = new_data[i];
+        double old_datum = option.prev->data[i];
+
+        if (new_datum > row || new_datum < 0)
+            err = -2;
+        if (i * bar_width + bar_width > col)
+            break;
+
+        // May the floating point gods have mercy on this equality check.
+        if (new_datum == old_datum) {
+            continue;
+        } else if (new_datum > old_datum) {
+            double bottom = row - old_datum;
+            double top = row - new_datum;
+            draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
+            draw_eighth(bar_width, i * bar_width, top, (int)top);
+        } else {
+            double bottom = row - new_datum;
+            double top = row - old_datum;
+            // Switch to background color to erase bars.
+            attron(COLOR_PAIR(2));
+            draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
+            attron(COLOR_PAIR(1));
+            draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
+        }
+    }
+
+    // Save this new data.
+    save_data(new_data, row, col, size);
+
+    refresh();
+    return err;
+}
+
+/* Expects normalized data points.
+ * Returns 0 on success. -1 when data is too wide. -2 when too tall.
+ */
+int ncviz_draw_data_static_normalized(double *new_data, int size)
+{
+    int err = 0;
+    int row, col;
+    getmaxyx(stdscr, row, col);
+    check_datareset(row, col, size);
+
+    int bar_width;
+    if (option.width == 0)
+        bar_width = col / size;
+    else
+        bar_width = option.width;
+
+    if (bar_width * size > col) {
+        err = -1;
+        print_log("Cannot fit data on screen.\n");
+    }
+
+    for (int i = 0; i < size; i++) {
+        double new_datum = new_data[i];
+        double old_datum = option.prev->data[i];
+
+        if (new_datum > row || new_datum < 0)
+            err = -2;
+        if (i * bar_width + bar_width > col)
+            break;
+
+        // May the floating point gods have mercy on this equality check.
+        if (new_datum == old_datum) {
+            continue;
+        } else if (new_datum > old_datum) {
+            double bottom = row - (old_datum * row);
+            double top = row - (new_datum * row);
+            draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
+            draw_eighth(bar_width, i * bar_width, top, (int)top);
+        } else {
+            double bottom = row - (new_datum * row);
+            double top = row - (old_datum * row);
+            // Switch to background color to erase bars.
+            attron(COLOR_PAIR(2));
+            draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
+            attron(COLOR_PAIR(1));
+            draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
+        }
+    }
+
+    // Save this new data.
+    save_data(new_data, row, col, size);
+
+    refresh();
+    return err;
+}
 
 /*************************************************
  * Option setting functions.
  *************************************************/
 
-/* Sets the width of each bar displayed
+/* Sets the width of each bar displayed.
  */
 int ncviz_width(int width)
 {
     if (width < 0)
         return -1;
     option.width = width;
+
+    check_datareset(-1, -1, -1);
     return 0;
 }
 
-/* Specifies whether the data is dynamic, ignores the value of limit otherwise
+/* Specifies whether the data is dynamic, ignores the value of limit otherwise.
+ * Dynamic data resizes entire graph when a value larger than the limit is
+ * found.
+ *
+ * limit will be ignored if less than 0.
  */
-void ncviz_dynamic(int dynamic, int limit) {
+void ncviz_dynamic(int dynamic, double limit) {
     option.is_dynamic_limit = dynamic;
-    if (!dynamic) {
+    if (!dynamic && limit > 0) {
         option.limit = limit;
     }
+
+    check_datareset(-1, -1, -1);
 }
-void ncviz_align(enum alignment align) {option.alignment = align; }
+
+void ncviz_align(enum alignment align) {
+    option.alignment = align;
+
+    check_datareset(-1, -1, -1);
+}
 void ncviz_fgcolor(int color)
 {
     option.fgcolor = color;
@@ -273,6 +430,7 @@ void ncviz_color(int fgcolor, int bgcolor)
     update_colorpair();
 }
 
+// Set all options at once.
 int ncviz_set_option(struct ncviz_option *options)
 {
     struct ncviz_option old_options = {
@@ -289,11 +447,9 @@ int ncviz_set_option(struct ncviz_option *options)
     ncviz_align(options->alignment);
     ncviz_color(options->fgcolor, options->bgcolor);
 
-    // guarantee reset of currently drawn data.
-    check_datareset(-1, -1, -1);
-
     return 0;
 error:
+    print_log("Option error\n");
     // Revert changes on failure.
     option.limit = old_options.limit;
     option.is_dynamic_limit = old_options.is_dynamic_limit;

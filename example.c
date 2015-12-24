@@ -8,7 +8,7 @@
 
 #include "ncviz.h"
 
-#define DATA_SIZE 1
+#define DATA_SIZE 50
 
 double *random_array(int size)
 {
@@ -28,7 +28,8 @@ int main(int argc, char *argv[])
 
     double *data = random_array(DATA_SIZE);
     struct ncviz_option opts = {
-        .limit = 100,
+        .limit = 1.0,
+        .width = 3,
         .is_dynamic_limit = 0,
         .alignment = ALIGN_LEFT,
         .fgcolor = COLOR_YELLOW,
@@ -42,7 +43,7 @@ int main(int argc, char *argv[])
             data[j] += 0.005;
             if (data[j] >= 1.0) data[j] = 1.0;
         }
-        ncviz_draw_data_normalized(data, DATA_SIZE);
+        ncviz_draw_data_static_normalized(data, DATA_SIZE);
         nanosleep(&delay, NULL);
     }
     for (int i = 0; i < 50; i++) {
@@ -50,7 +51,7 @@ int main(int argc, char *argv[])
             data[j] -= .005;
             if (data[j] <= 0.0) data[j] = 0.0;
         }
-        ncviz_draw_data_normalized(data, DATA_SIZE);
+        ncviz_draw_data_static_normalized(data, DATA_SIZE);
         nanosleep(&delay, NULL);
     }
 

@@ -15,10 +15,10 @@ enum alignment { ALIGN_LEFT, ALIGN_MIDDLE, ALIGN_RIGHT };
 
 /* Options for how to display bars on the screen.
  *
- * dynamic_limit: Determines if the limit will increase if the
+ * is_dynamic_limit: Determines if the limit will increase if the
  *                current data exceeds the current limit
  * limit: max value for data. Values larger than this will take up entire
- * column or, if dynamic_limit=1 generate a new value.
+ * column or, if is_dynamic_limit=1 generate a new value.
  * width: the amount of characters each bar takes.
  * align: determines where the whitespace for a bar graph will be.
  */
@@ -33,17 +33,18 @@ struct ncviz_option {
 
 int ncviz_init();
 void ncviz_end();
-int ncviz_draw_data_normalized(double *data, int);
+int ncviz_draw_data(double *, int);
+int ncviz_draw_data_static(double *, int);
+int ncviz_draw_data_static_normalized(double *, int);
 
 
 int ncviz_width(int);
-
-// Specify a dynamic limit
-void ncviz_dynamic(int, int);
+void ncviz_dynamic(int, double);
 void ncviz_align(enum alignment);
 void ncviz_fgcolor(int);
 void ncviz_bgcolor(int);
 void ncviz_color(int, int);
+int ncviz_normalized(int);
 int ncviz_set_option(struct ncviz_option *);
 
 #endif
