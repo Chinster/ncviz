@@ -37,13 +37,14 @@ int main(int argc, char *argv[])
     };
     ncviz_init();
     ncviz_set_option(&opts);
+    ncviz_debug(1, "ncviz.log");
 
     for (int i = 0; i < 50; i++) {
         for (int j = 0; j < DATA_SIZE; j++) {
             data[j] += 0.005;
             if (data[j] >= 1.0) data[j] = 1.0;
         }
-        ncviz_draw_data_static_normalized(data, DATA_SIZE);
+        ncviz_draw_data(data, DATA_SIZE);
         nanosleep(&delay, NULL);
     }
     for (int i = 0; i < 50; i++) {
@@ -51,10 +52,9 @@ int main(int argc, char *argv[])
             data[j] -= .005;
             if (data[j] <= 0.0) data[j] = 0.0;
         }
-        ncviz_draw_data_static_normalized(data, DATA_SIZE);
+        ncviz_draw_data(data, DATA_SIZE);
         nanosleep(&delay, NULL);
     }
-
 
     ncviz_end();
     free(data);

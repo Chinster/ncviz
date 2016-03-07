@@ -4,8 +4,6 @@
 
 #include "ncviz.h"
 
-#define LOG_PATH "ncviz.log"
-
 // unicode bytes for eighth bars. Starts at one eighth.
 static const char *outc[8] = {"\xe2\x96\x81", "\xe2\x96\x82",
                               "\xe2\x96\x83", "\xe2\x96\x84",
@@ -41,16 +39,19 @@ struct option {
     int bgcolor;
     struct prev_data *prev;
     FILE *logfile;
+    int debug;
 } option;
 
 void print_log(const char *format, ...)
 {
-    va_list args;
-    va_start(args, format);
+    if (option.debug) {
+        va_list args;
+        va_start(args, format);
 
-    vfprintf(option.logfile, format, args);
+        vfprintf(option.logfile, format, args);
 
-    va_end(args);
+        va_end(args);
+    }
 }
 
 void update_colorpair() {
@@ -92,7 +93,7 @@ int init_option() {
     option.prev->data = NULL;
     option.prev->datasize = 0;
 
-    option.logfile = fopen(LOG_PATH, "w");
+    option.logfile = NULL;
     return 0;
 }
 
@@ -115,7 +116,8 @@ void ncviz_end()
     free(option.prev->data);
 
     print_log("Closing log.\n");
-    fclose(option.logfile);
+    if (option.logfile);
+        fclose(option.logfile);
 }
 
 /* Updates previous data point.
@@ -144,6 +146,11 @@ void check_datareset(int row, int col, int datasize) {
 
         clear();
     }
+}
+
+/* Resets the prev_data set. */
+void datareset(void) {
+    check_datareset(-1, -1, -1);
 }
 
 /* Draws a bar on the ncurses screen.
@@ -184,8 +191,8 @@ void draw_eighth(int width, int start_col, double top_edge, int top_i)
     }
 }
 
-/* Finds max value in array. */
-double find_max(double *arr, int size)
+/* Linear search for max value. */
+static double find_max(double *arr, int size)
 {
     double max = arr[0];
     for (int i = 1; i < size; i++)
@@ -194,71 +201,88 @@ double find_max(double *arr, int size)
     return max;
 }
 
-/* If is_dynamic_limit is set draws the graph with max value being max of
- * dataset. Otherwise, uses previously established max data point. If using
- * a limit of 1.0 use ncviz_draw_data_static_normalized.
+/* Returns a bar width given width of ncurses screen, and data size */
+static int get_bar_width(int col, int size)
+{
+    if (size == 0)
+        return 1;
+    int bar_width;
+    if (option.width == 0) {
+        bar_width = col / size;
+        if (bar_width == 0)
+            bar_width = 1;
+    } else {
+        bar_width = option.width;
+    }
+    return bar_width;
+}
+
+/* Draws a singular data point. */
+static void draw_datum(double new, double old, int i, int bar_width, int row)
+{
+    if (new > old) {
+        double bottom = row - (old * row);
+        double top = row - (new * row);
+
+        draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
+        draw_eighth(bar_width, i * bar_width, top, (int)top);
+    } else if (new < old) {
+        double bottom = row - (new * row);
+        double top = row - (old * row);
+
+        // Switch to background color to erase bars.
+        attron(COLOR_PAIR(2));
+        draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
+        attron(COLOR_PAIR(1));
+        draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
+    }
+}
+
+
+/* Draws the data where values are within the range of 0 and option.limit.
+ * If is_dynamic_limit is set draws the graph with max value being max of
+ * dataset. If using a limit of 1.0 use ncviz_draw_data_normalized.
  *
  * Returns 0 on success. -1 when data is too wide. -2 when given non-normalized
  * data.
  */
 int ncviz_draw_data(double *new_data, int size)
 {
+    if (size == 0)
+        return -2;
+
     int err = 0;
     int row, col;
     getmaxyx(stdscr, row, col);
     check_datareset(row, col, size);
-
-    int bar_width;
-    if (option.width == 0)
-        bar_width = col / size;
-    else
-        bar_width = option.width;
-
-    if (bar_width * size > col) {
-        err = -1;
-        print_log("Cannot fit data on screen.\n");
-    }
+    int bar_width = get_bar_width(col, size);
 
     for (int i = 0; i < size; i++) {
         double new_datum = new_data[i] / option.limit;
         double old_datum = option.prev->data[i] / option.limit;
 
-        if (new_datum > 1.0 || new_datum < 0) {
+        if (new_datum > 1 || new_datum < 0) {
             if (option.is_dynamic_limit) {
                 option.limit = find_max(new_data, size);
                 print_log("Limit reached. New limit %f\n", option.limit);
-                check_datareset(-1, -1, -1);
+                datareset();
                 return ncviz_draw_data(new_data, size);
             }
         } else {
             err = -2;
         }
 
-        if (i * bar_width + bar_width > col)
+        if (i * bar_width + bar_width > col) {
+            print_log("Datum at index %d will not fit widthwise.\n");
+            err = -1;
             break;
-
-        // May the floating point gods have mercy on this equality check.
-        if (new_datum == old_datum) {
-            continue;
-        } else if (new_datum > old_datum) {
-            double bottom = row - (old_datum * row);
-            double top = row - (new_datum * row);
-            draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
-            draw_eighth(bar_width, i * bar_width, top, (int)top);
-        } else {
-            double bottom = row - (new_datum * row);
-            double top = row - (old_datum * row);
-            // Switch to background color to erase bars.
-            attron(COLOR_PAIR(2));
-            draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
-            attron(COLOR_PAIR(1));
-            draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
         }
+
+        draw_datum(new_datum, old_datum, i, bar_width, row);
     }
 
     // Save this new data.
     save_data(new_data, row, col, size);
-
     refresh();
     return err;
 }
@@ -272,17 +296,7 @@ int ncviz_draw_data_static(double *new_data, int size)
     int row, col;
     getmaxyx(stdscr, row, col);
     check_datareset(row, col, size);
-
-    int bar_width;
-    if (option.width == 0)
-        bar_width = col / size;
-    else
-        bar_width = option.width;
-
-    if (bar_width * size > col) {
-        err = -1;
-        print_log("Cannot fit data on screen.\n");
-    }
+    int bar_width = get_bar_width(col, size);
 
     for (int i = 0; i < size; i++) {
         double new_datum = new_data[i];
@@ -290,20 +304,25 @@ int ncviz_draw_data_static(double *new_data, int size)
 
         if (new_datum > row || new_datum < 0)
             err = -2;
-        if (i * bar_width + bar_width > col)
+        if (i * bar_width + bar_width > col) {
+            print_log("Datum at index %d will not fit widthwise.\n");
+            err = -1;
             break;
+        }
 
-        // May the floating point gods have mercy on this equality check.
+        // Draw datum function below with modified bottom/top variables
         if (new_datum == old_datum) {
             continue;
         } else if (new_datum > old_datum) {
             double bottom = row - old_datum;
             double top = row - new_datum;
+
             draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
             draw_eighth(bar_width, i * bar_width, top, (int)top);
         } else {
             double bottom = row - new_datum;
             double top = row - old_datum;
+
             // Switch to background color to erase bars.
             attron(COLOR_PAIR(2));
             draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
@@ -314,7 +333,6 @@ int ncviz_draw_data_static(double *new_data, int size)
 
     // Save this new data.
     save_data(new_data, row, col, size);
-
     refresh();
     return err;
 }
@@ -322,23 +340,13 @@ int ncviz_draw_data_static(double *new_data, int size)
 /* Expects normalized data points.
  * Returns 0 on success. -1 when data is too wide. -2 when too tall.
  */
-int ncviz_draw_data_static_normalized(double *new_data, int size)
+int ncviz_draw_data_normalized(double *new_data, int size)
 {
     int err = 0;
     int row, col;
     getmaxyx(stdscr, row, col);
     check_datareset(row, col, size);
-
-    int bar_width;
-    if (option.width == 0)
-        bar_width = col / size;
-    else
-        bar_width = option.width;
-
-    if (bar_width * size > col) {
-        err = -1;
-        print_log("Cannot fit data on screen.\n");
-    }
+    int bar_width = get_bar_width(col, size);
 
     for (int i = 0; i < size; i++) {
         double new_datum = new_data[i];
@@ -346,31 +354,17 @@ int ncviz_draw_data_static_normalized(double *new_data, int size)
 
         if (new_datum > row || new_datum < 0)
             err = -2;
-        if (i * bar_width + bar_width > col)
+        if (i * bar_width + bar_width > col) {
+            print_log("Datum at index %d will not fit widthwise.\n");
+            err = -1;
             break;
-
-        // May the floating point gods have mercy on this equality check.
-        if (new_datum == old_datum) {
-            continue;
-        } else if (new_datum > old_datum) {
-            double bottom = row - (old_datum * row);
-            double top = row - (new_datum * row);
-            draw_bar(bar_width, i * bar_width, row, (int)bottom, (int)top);
-            draw_eighth(bar_width, i * bar_width, top, (int)top);
-        } else {
-            double bottom = row - (new_datum * row);
-            double top = row - (old_datum * row);
-            // Switch to background color to erase bars.
-            attron(COLOR_PAIR(2));
-            draw_bar(bar_width, i * bar_width, row, (int)bottom - 1, (int)top - 1);
-            attron(COLOR_PAIR(1));
-            draw_eighth(bar_width, i * bar_width, bottom, (int)bottom);
         }
+
+        draw_datum(new_datum, old_datum, i, bar_width, row);
     }
 
     // Save this new data.
     save_data(new_data, row, col, size);
-
     refresh();
     return err;
 }
@@ -379,7 +373,8 @@ int ncviz_draw_data_static_normalized(double *new_data, int size)
  * Option setting functions.
  *************************************************/
 
-/* Sets the width of each bar displayed.
+/* Sets the width of each bar displayed. If width == 0, bars will attempt to
+ * fit on screen.
  */
 int ncviz_width(int width)
 {
@@ -387,7 +382,7 @@ int ncviz_width(int width)
         return -1;
     option.width = width;
 
-    check_datareset(-1, -1, -1);
+    datareset();
     return 0;
 }
 
@@ -403,13 +398,13 @@ void ncviz_dynamic(int dynamic, double limit) {
         option.limit = limit;
     }
 
-    check_datareset(-1, -1, -1);
+    datareset();
 }
 
 void ncviz_align(enum alignment align) {
     option.alignment = align;
 
-    check_datareset(-1, -1, -1);
+    datareset();
 }
 void ncviz_fgcolor(int color)
 {
@@ -459,4 +454,21 @@ error:
     option.bgcolor = old_options.bgcolor;
 
     return -1;
+}
+
+void ncviz_debug(int mode, char *logfile)
+{
+    option.debug = mode;
+    if (option.debug) {
+        if (option.logfile) {
+            fclose(option.logfile);
+            option.logfile = NULL;
+        }
+        option.logfile = fopen(logfile, "w");
+    } else {
+        if (option.logfile) {
+            fclose(option.logfile);
+            option.logfile = NULL;
+        }
+    }
 }

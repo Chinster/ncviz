@@ -1,2 +1,2 @@
 # ncviz
-A generic interface for creating visualizers in ncurses.
+A generic interface for creating bar graphs in ncurses

@@ -35,7 +35,7 @@ int ncviz_init();
 void ncviz_end();
 int ncviz_draw_data(double *, int);
 int ncviz_draw_data_static(double *, int);
-int ncviz_draw_data_static_normalized(double *, int);
+int ncviz_draw_data_normalized(double *, int);
 
 
 int ncviz_width(int);
@@ -46,5 +46,6 @@ void ncviz_bgcolor(int);
 void ncviz_color(int, int);
 int ncviz_normalized(int);
 int ncviz_set_option(struct ncviz_option *);
+void ncviz_debug(int, char *);
 
 #endif
